@@ -2,12 +2,8 @@ import numpy as np
 import constants as ct
 import basic_equations as eqn
 
-
-'''
-Expressions for Pcol in different regimes
-'''
-
 tau_fr=ct.tau_fr
+t_gap=0 #gets set to the time at which the planet opens a gap. Used later during plotting.
 
 #Condition checking for what regime we are in:
 
@@ -22,6 +18,9 @@ def check_reg(a,m):
         reg='hyp'
     return (reg,zeta) #returning zeta so I don't have to call the function again. Probably a more elegant way to do this.
 
+'''
+Expressions for Pcol
+'''
 
 #Pcol function. This one actually checks regimes.
 
@@ -54,7 +53,7 @@ def Pcol_alt(a,m): #this stuff is all in normalized hill units #inputs in AU, gr
         f=np.exp(-(.7*zeta/tau_fr)**5)
     return 2*b*eqn.r_hill(a,m)*v_a*eqn.v_hill(a,m)
 
-#Alternative Pcol function. This one takes the max (which frankly seems to be wasteful in terms of computation.)
+#Alternative Pcol function (which is being used currently). This one takes the max (which frankly seems to be wasteful in terms of computation).
 
 def Pcol(a,m): #input in AU, grams
 
@@ -92,17 +91,24 @@ def Pcol(a,m): #input in AU, grams
 #Expression for derivative
 
 
-
 def M_core_dot(a,m_core,m_atm,t): #inputs in M_earth, AU
     if ct.const_core:
         return 0
+   
     m=(m_core+m_atm)*ct.Mearth #planet mass in cgs
 
     if eqn.check_gap(a,m)==False:
         
-        return ct.C_acc*Pcol(a,m)/3*eqn.Sigma_mmsn(a)*eqn.r_hill(a,m)*eqn.v_hill(a,m)*ct.Myr_to_s/ct.Mearth #added divisor of 3 to match eve's pcol
+        return ct.C_acc*Pcol(a,m)/ct.Pcol_fudge*eqn.Sigma_mmsn(a)*eqn.r_hill(a,m)*eqn.v_hill(a,m)*ct.Myr_to_s/ct.Mearth #added divisor of 3 to match eve's pcol
     
-    return 0 #gap formed, no more accretion
+    global t_gap
+    
+    if t_gap==0:
+        t_gap=t
+    
+    return ct.C_acc*Pcol(a,m)/ct.Pcol_fudge*eqn.Sigma_mmsn(a)*eqn.r_hill(a,m)*eqn.v_hill(a,m)*ct.Myr_to_s/ct.Mearth*np.exp(-ct.core_smooth*(t-t_gap)) #gap formed, no more accretion
+    #exponential factor creates smooth decay to 0
+
 
 '''
 testing
