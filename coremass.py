@@ -5,8 +5,16 @@ import basic_equations as eqn
 tau_fr=ct.tau_fr
 t_gap=0 #gets set to the time at which the planet opens a gap. Used later during plotting.
 
-#Condition checking for what regime we are in:
 
+
+#These functions are all from OK12, Appendix A
+
+'''
+Regime Checking
+'''
+
+#What regime is the planet forming in? Settling, Hyperbolic, or Three-body? 
+#Input in AU, grams. Returns zeta as well as the regime to save a calculation.
 def check_reg(a,m):
     zeta=eqn.zeta_w(a,m)
     reg=''
@@ -16,7 +24,8 @@ def check_reg(a,m):
         reg='3b'
     else:
         reg='hyp'
-    return (reg,zeta) #returning zeta so I don't have to call the function again. Probably a more elegant way to do this.
+    return (reg,zeta) 
+
 
 '''
 Expressions for Pcol
@@ -24,11 +33,11 @@ Expressions for Pcol
 
 #Pcol function. This one actually checks regimes.
 
-def Pcol_alt(a,m): #this stuff is all in normalized hill units #inputs in AU, grams
+def Pcol_alt(a,m):                      #inputs in AU, grams. outputs in hill units.
     reg,zeta = check_reg(a,m)
     alpha=eqn.alpha_core(a,m)
-    b=None   #impact param
-    v_a=None #approach velocity
+    b=None                              #impact param
+    v_a=None                            #approach velocity
     if reg=='set':
         coeff = [1,2/3*zeta,0,-8*tau_fr]
         roots = np.roots(coeff)
@@ -53,9 +62,11 @@ def Pcol_alt(a,m): #this stuff is all in normalized hill units #inputs in AU, gr
         f=np.exp(-(.7*zeta/tau_fr)**5)
     return 2*b*eqn.r_hill(a,m)*v_a*eqn.v_hill(a,m)
 
-#Alternative Pcol function (which is being used currently). This one takes the max (which frankly seems to be wasteful in terms of computation).
 
-def Pcol(a,m): #input in AU, grams
+#Alternative Pcol function (which is being used currently). This one takes the max 
+#(which frankly seems to be wasteful in terms of computation).
+
+def Pcol(a,m): #input in AU, grams. outputs in hill units.
 
     zeta = eqn.zeta_w(a,m)
     r_H = eqn.r_hill(a,m)
@@ -85,29 +96,46 @@ def Pcol(a,m): #input in AU, grams
     
     P_col_3b = 2*b_3b*f_3b*v_a_3b
 
-    return max(Pcol_set,P_col_hyp,P_col_3b)
+    #check if we should force a regime or let the max do its thing.
+    if ct.reg=='auto':
+        return max(Pcol_set,P_col_hyp,P_col_3b)
+    elif ct.reg=='set':
+        return Pcol_set
+    elif ct.reg=='hyp':
+        return P_col_hyp
+    elif ct.reg=='3b':
+        return P_col_3b
+    else:
+        raise Exception('error in Pcol. no regime with such name')
     
 
-#Expression for derivative
-
+#Expression for derivative. From OK12, eqn 1.
 
 def M_core_dot(a,m_core,m_atm,t): #inputs in M_earth, AU
+    
     if ct.const_core:
         return 0
    
     m=(m_core+m_atm)*ct.Mearth #planet mass in cgs
 
+    #expression for m_core_dot. in mearth/myr.
+    m_dot = ct.C_acc*Pcol(a,m)/ct.Pcol_fudge*eqn.Sigma_mmsn(a)*eqn.r_hill(a,m)*eqn.v_hill(a,m)*ct.Myr_to_s/ct.Mearth 
+
+    #Check that the planet has not formed a gap. Gap formation halts accretion.
     if eqn.check_gap(a,m)==False:
         
-        return ct.C_acc*Pcol(a,m)/ct.Pcol_fudge*eqn.Sigma_mmsn(a)*eqn.r_hill(a,m)*eqn.v_hill(a,m)*ct.Myr_to_s/ct.Mearth #added divisor of 3 to match eve's pcol
+        return m_dot
     
+    #Otherwise, record the time of gap_opening.
     global t_gap
     
     if t_gap==0:
         t_gap=t
     
-    return ct.C_acc*Pcol(a,m)/ct.Pcol_fudge*eqn.Sigma_mmsn(a)*eqn.r_hill(a,m)*eqn.v_hill(a,m)*ct.Myr_to_s/ct.Mearth*np.exp(-ct.core_smooth*(t-t_gap)) #gap formed, no more accretion
-    #exponential factor creates smooth decay to 0
+    #gap formed, no more accretion. Thus m_dot decays to 0.
+    #This decay is caused by the exponential factor.
+    return m_dot*np.exp(-ct.core_smooth*(t-t_gap)) 
+
 
 
 '''
