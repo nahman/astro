@@ -2,7 +2,8 @@ import constants as ct
 import basic_equations as eqn 
 
 '''
-to do: make discontinous transitions of a_dot smoother.
+to do: 
+-make discontinous transitions of a_dot smoother.
 '''
 
 #viscous migration speed of planet. (Type II). in AU/Myr
@@ -21,16 +22,18 @@ def Gamma_tot(a,m_core,m_atm,t):
 def a_dot(a,m_core,m_atm,t): 
     if ct.const_mig:
         return 0 
-    
+
     m_core=m_core*ct.Mearth
     m_atm=m_atm*ct.Mearth
-
+    
     if(eqn.check_gap(a,(m_core+m_atm))):
+        return 0 #turning of viscous migration
         return a_dot_visc
 
     cgs_a_dot= 2*Gamma_tot(a,m_core,m_atm,t)/((m_core+m_atm)*(ct.G*ct.Msun)**.5*(a*ct.AU_to_cm)**-.5)
     return cgs_a_dot*ct.Myr_to_s/ct.AU_to_cm
     
+
 #Eve's a_dot expression
 def a_dot_alt(a,m_core,m_atm,t):
     if(eqn.check_gap(a,(m_core+m_atm)*ct.Mearth)):
@@ -45,5 +48,6 @@ def a_dot_alt(a,m_core,m_atm,t):
 testing
 '''
 
-#print(a_dot(1,2,.1,1))
+#print(Gamma_0(1,2,1,1e-1))
+print(a_dot(1,2,1,1e-1))
 

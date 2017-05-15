@@ -47,7 +47,6 @@ def v_kep(a):                               #Keplerian velocty. input in AU, out
     return (ct.G*ct.Msun/(a*ct.AU_to_cm))**.5
 
 def eta(a):                                 #headwind factor: multiply this with keplerian velocity to find headwind. Input in AU. Unitless.
-    
     return -1/2*(c_s(a)/(v_kep(a)**2))**2*(a*ct.AU_to_cm/P_gas(a))*diff_P_gas(a) 
 
 def v_hw(a):                                #headwind velocity. input AU, output cgs.
@@ -70,7 +69,7 @@ def Sigma_gas(a):                           #gas surface density of disk. input 
 def power_factor(t):                        #power scaling factor that is multiplied with sigma_gas to give gas 
     return (t/10**ct.t_init)**(-5/4)        #surface density the appropriate scaling with time. input Myr.
 
-def Sigma_gas_power(t):                     #Sigma_gas, but evolves with time according to a power rule. input Myr.
+def Sigma_gas_power(a,t):                     #Sigma_gas, but evolves with time according to a power rule. input Myr.
     return Sigma_gas(a)*power_factor(t)
 
 def power_factor_dot(t):                    #time derivative of power_factor.
@@ -138,5 +137,11 @@ def check_gap(a,m):
         #if the planet has gotten this big, something has gone wrong.
         raise Exception('check_gap failed. the mass of the planet exceeds upper bounds set for the calculation of gap formation')
 
+'''
+simple checking for isolation mass
+'''
 
-
+def check_iso(m):  #gram input
+    if m/ct.Mearth>=ct.iso_mass:
+        return True
+    return False

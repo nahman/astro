@@ -1,7 +1,6 @@
-import constants as ct
-import coremass
-import basic_equations as eqn 
 import numpy as np
+import constants as ct
+import basic_equations as eqn 
 
 '''
 Assumptions:
@@ -47,7 +46,7 @@ def m_atm_dot_dusty(a,m_core,m_core_dot,m_atm,t):
     #Once the GCR hits 50%, runaway accretion kicks in. Right now, I just force this function to 0. 
     if m_atm/m_core>=.5: 
         
-        return m_dot*np.exp(-ct.atm_smooth*(m_atm/m_core-.5)) #this is a place holder. need to make m_planet m_jup.
+        return m_dot*np.exp(-ct.atm_smooth*(m_atm/m_core-.5)) #this is a place holder. need to make m_planet m_jup. Cap at Jupiter mass.
         
         #note that the exponential is being used as a smoothing factor to keep derivatives continuous, 
         #but also to force it to 0 quickly. odeint likes continuity.
@@ -55,4 +54,4 @@ def m_atm_dot_dusty(a,m_core,m_core_dot,m_atm,t):
     return m_dot
 
 
-
+print(m_atm_dot_dusty(1,2,3343.5,1,1))
