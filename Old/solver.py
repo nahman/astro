@@ -154,9 +154,17 @@ def mp_graph(vals, param_title):
     plt.setp([a.get_xticklabels() for a in fig.axes[:-1]], visible=False)
     plt.xlabel('Time, Myrs')
 
-
+'''
 vals=[5,10,15,20,25]
 
 mp_graph(vals,'Iso M')
 plt.suptitle('Effect of Iso M on Planet Evolution')
+plt.show()
+'''
+t = np.logspace(ct.t_init,ct.t_end,ct.step)
+sol = solve(ct.t_init,ct.t_end,diff_system,ct.y0,ct.step)
+print(sol)
+graph(sol[0],sol[1],['mc','ma','a'])
+
+format_graph()
 plt.show()

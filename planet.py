@@ -1,9 +1,13 @@
 import numpy as np
 import constants as ct
 import disk as d
+import ID
+import json
+from collections import namedtuple
+
 
 class Planet:
-    rho_solid=5
+    rho_solid=5.0
     C_acc=1.0
     GCR_fudge=2.0
     Pcol_fudge=3.0
@@ -21,7 +25,7 @@ class Planet:
         self.const_a=const_a
         self.tstop=None
         self.use_iso=use_iso
-
+        self.id=ID.Planet_ID(disk.tau_fr,disk.alpha,m_iso,disk.mode,disk.t_init)
         self.disk=disk  #is composition a good idea?
 
     def redefine(self,mc,ma,a):
@@ -31,7 +35,7 @@ class Planet:
     
     def state(self):
         return [self.m_core,self.m_atm,self.a]
-    
+
     '''
     some basic functions
     '''   
@@ -45,7 +49,7 @@ class Planet:
         return self.r_hill()*self.Omega()
         
     def r_core(self):
-        return ((3*self.m_core)/(4*np.pi*ct.rho_solid))**(1/3)
+        return ((3*self.m_core)/(4*np.pi*self.rho_solid))**(1/3)
     
     def alpha_core(self):                   #core size in Hill units. input AU, grams.
         return self.r_core()/self.r_hill()
@@ -54,7 +58,7 @@ class Planet:
         return ct.G*(self.m_atm+self.m_core)*ct.Mearth/(c_s**2)
 
     def check_iso(self):  
-        if self.m_core+self.m_atm>=ct.iso_mass: #Supposed to be both, right?
+        if self.m_core+self.m_atm>=self.m_iso: #Supposed to be both, right?
             return True
         return False
 
@@ -165,7 +169,8 @@ class Planet:
     '''
     Migration functions
     '''
-    a_dot_visc=-ct.alpha_ss*(ct.k/(ct.mu*ct.m_H)*260*(ct.AU_to_cm)**.5/(ct.G*ct.Msun)**.5)*ct.Myr_to_s/ct.AU_to_cm
+    def a_dot_visc(self):
+        return-self.disk.alpha*(ct.k/(ct.mu*ct.m_H)*260*(ct.AU_to_cm)**.5/(ct.G*ct.Msun)**.5)*ct.Myr_to_s/ct.AU_to_cm
 
     #normalization torque 
     def Gamma_0(self,t): 
@@ -188,7 +193,7 @@ class Planet:
         if self.use_iso:
             if self.check_iso(): 
                 return 0 #turning of viscous migration
-                #return self.a_dot_visc
+                #return self.a_dot_visc()
 
             cgs_a_dot= 2*self.Gamma_tot(t)/((m_core+m_atm)*(ct.G*ct.Msun)**.5*(self.a*ct.AU_to_cm)**-.5)
 

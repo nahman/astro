@@ -6,14 +6,14 @@ class Disk:
     Z=2e-2 #gas metallicity
     std_temp=260 #at 1AU
 
-    def __init__(self,mode,tau_fr,alpha,t_init=0,dep_time=5,dep_factor=1):
+    def __init__(self, mode: "'pow' for power-law or 'exp' for exponential", tau_fr, alpha, t_init: 'in Myr' =0, dep_time: 'in Myr' =5, dep_factor=1):
         self.mode=mode
         self.tau_fr=tau_fr
         self.alpha=alpha
         self.dep_factor=dep_factor
         if mode=='exp':
             self.dep_time=5
-        self.t_init=t_init
+        self.t_init=t_init #NOT LOGSPACE
 
     #Functions that change based on disk type
     

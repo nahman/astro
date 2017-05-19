@@ -22,9 +22,12 @@ def Gamma_tot(a,m_core,m_atm,t):
 def a_dot(a,m_core,m_atm,t): 
     if ct.const_mig:
         return 0 
-
+    if m_core+m_atm>=ct.iso_mass:
+        return 0
     m_core=m_core*ct.Mearth
     m_atm=m_atm*ct.Mearth
+
+
     
     if(eqn.check_gap(a,(m_core+m_atm))):
         return 0 #turning of viscous migration
