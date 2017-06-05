@@ -1,13 +1,4 @@
 import numpy as np
-import itertools as it
-
-iterator = it.count()
-index=iterator.__next__()
-
-def get_next():
-    global index
-    index=iterator.__next__()
-    return
 
 
 '''
@@ -19,8 +10,8 @@ Msun=2e+33
 Mearth=6e+27
 k=1.38e-16 #boltzmann constant
 m_H=1.67e-24 #hydrogen mass
-mu=2.374 #mean molecular weight in hydrogen masses
-mu_rcb=2.0 #I'm not sure if this should be 2 or 2.374
+mu=2.37 #mean molecular weight in hydrogen masses
+mu_rcb=2.37 #I'm not sure if this should be 2 or 2.374
 T_rcb = 2500.0 #temperature of atm at rcb
 grad_adb=.17 #adiabatic temperature gradient at rcb
 m_jup=300 #Jupiter mass in mearths
@@ -50,6 +41,7 @@ todo:
 -Case 2: Try this case: Always use type I until M_p \sim M_jup
 -What parameters cause core growth then migration, vs the opposite?
 -Case 3: Keep Type I till Jupiter formation, then use type II.
+
 
 
 In all cases we want a m_p, period plot.

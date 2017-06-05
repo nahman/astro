@@ -3,6 +3,7 @@ import constants as ct
 import disk as d
 import ID
 import json
+import matplotlib.pyplot as plt
 from collections import namedtuple
 
 
@@ -11,27 +12,49 @@ class Planet:
     C_acc=1.0
     GCR_fudge=2.0
     Pcol_fudge=3.0
-    core_smooth=1e+10
-    atm_smooth=1e+10
+    smooth=1e10
+    gap_param=1.0
 
-    def __init__(self,m_c0,m_a0,a0,m_iso,disk,reg='auto',const_core=False,const_atm=False,const_a=False,use_iso=True):
+
+    #m_iso_mode 'auto' enforces automatic calculation of m_iso via DC14's gap opening mass eqn. You can also input a static, overriding value.
+    def __init__(self,m_c0,m_a0,a0,disk:d.Disk,reg='auto',const_core=False,const_atm=False,const_a=False,case=1,m_iso_mode='auto'):
         self.a=a0
         self.m_core=m_c0
         self.m_atm=m_a0
-        self.m_iso=m_iso
+        self.t=disk.t_init
+        self.disk=disk  #is composition a good idea?
+        self.m_iso_mode = m_iso_mode
+
+        if m_iso_mode=='auto':
+            self.m_iso=self.gap_mass() #kinda risky calling a function of this sort inside t_init
+        else:
+            self.m_iso=m_iso_mode
+
         self.reg=reg
         self.const_core=const_core
         self.const_atm=const_atm
         self.const_a=const_a
         self.tstop=None
-        self.use_iso=use_iso
-        self.id=ID.Planet_ID(disk.tau_fr,disk.alpha,m_iso,disk.mode,disk.t_init)
-        self.disk=disk  #is composition a good idea?
+        self.case=case
+        self.id=ID.Planet_ID(disk.tau_fr,disk.alpha,m_iso_mode,disk.mode,disk.t_init,disk.dep_time,disk.atmos,case)
+        
+        self.t_jup=None
+        
+        self.astop=None
+        self.toggled=False
 
-    def redefine(self,mc,ma,a):
+    def redefine(self,mc,ma,a,t):
+
         self.m_core=mc
         self.m_atm=ma
         self.a=a
+        self.t=t
+
+        if self.m_iso_mode=='auto':
+            self.m_iso=self.gap_mass()
+            print(self.m_iso)
+
+        return self
     
     def state(self):
         return [self.m_core,self.m_atm,self.a]
@@ -42,7 +65,11 @@ class Planet:
     def Omega(self):
         return (ct.G*ct.Msun/(self.a*ct.AU_to_cm)**3)**.5
 
+    def period(self): #period of planet in days.
+        return 2*np.pi/self.Omega() * (1/60) * (1/60) * (1/24)
+
     def r_hill(self):
+        #print(self.a*ct.AU_to_cm*((self.m_core+self.m_atm)*ct.Mearth/(3*ct.Msun))**(1/3))
         return self.a*ct.AU_to_cm*((self.m_core+self.m_atm)*ct.Mearth/(3*ct.Msun))**(1/3)
     
     def v_hill(self):
@@ -58,28 +85,27 @@ class Planet:
         return ct.G*(self.m_atm+self.m_core)*ct.Mearth/(c_s**2)
 
     def check_iso(self):  
-        if self.m_core+self.m_atm>=self.m_iso: #Supposed to be both, right?
-            return True
-        return False
+        return self.m_core+self.m_atm>=self.m_iso #Supposed to be both, right?
 
     def v_kep(self):                               #Keplerian velocty. input in AU, output in cgs
         return (ct.G*ct.Msun/(self.a*ct.AU_to_cm))**.5
     
-    def eta(self):                                 #headwind factor: multiply this with keplerian velocity to find headwind. Input in AU. Unitless.
+    def eta(self,t):                                 #headwind factor: multiply this with keplerian velocity to find headwind. Input in AU. Unitless.
         a=self.a
-        return -1/2*(self.disk.c_s(a)/(self.v_kep()**2))**2*(a*ct.AU_to_cm/self.disk.P_gas(a))*self.disk.diff_P_gas(a) 
+        return -1/2*(d.Disk.c_s(a)/(self.v_kep()**2))**2*(a*ct.AU_to_cm/self.disk.P_gas(a,t))*self.disk.diff_P_gas(a,t) 
 
-    def v_hw(self):                                #headwind velocity. input AU, output cgs.
-        return self.eta()*self.v_kep() 
+    def v_hw(self,t):                                #headwind velocity. input AU, output cgs.
+        return self.eta(t)*self.v_kep() 
 
-    def zeta_w(self):                            #OK12's 'headwind parameter.' Input AU, grams. Unitless.
-        return self.v_hw()/self.v_hill()
+    def zeta_w(self,t):                            #OK12's 'headwind parameter.' Input AU, grams. Unitless.
+        #print('v_h: '+str(self.v_hill()))
+        return self.v_hw(t)/self.v_hill()
 
     '''
     Core Growth Functions
     '''
-    def Pcol(self):
-        zeta = self.zeta_w()
+    def Pcol(self,t):
+        zeta = self.zeta_w(t)
         r_H = self.r_hill()
         v_H = self.v_hill()
         alpha = self.alpha_core()
@@ -89,10 +115,12 @@ class Planet:
         coeff = [1,2/3*zeta,0,-8*tau_fr]
         coeff=np.nan_to_num(coeff)
         roots = np.roots(coeff)
-        b_set=roots.real[abs(roots.imag)<1e-5][0]
+        b_set_arr=roots.real[abs(roots.imag)<1e-5]
+        b_set=max(b_set_arr) #get real positive root
+        
         v_a_set=3/2*b_set+zeta
         f_set = np.exp(-(tau_fr/min(12/zeta**3,2))**.65) #smoothing factor
-
+        #print('zeta: '+str(zeta))
         P_col_set = 2*b_set*f_set*v_a_set 
 
         #hyperbolic calc
@@ -111,6 +139,17 @@ class Planet:
         #check if we should force a regime or let the max do its thing.
 
         if self.reg=='auto':
+            '''
+            _max = max(P_col_set,P_col_hyp,P_col_3b)
+            if _max == P_col_set:
+                print('set: '+str(P_col_set))
+            elif _max == P_col_hyp:
+                print('hyp: '+str(P_col_hyp))
+                print('set: '+str(P_col_set))
+            else:
+                print('3b')
+            '''
+            
             return max(P_col_set,P_col_hyp,P_col_3b)
         elif self.reg =='set':
             return P_col_set
@@ -124,55 +163,99 @@ class Planet:
     def m_core_dot(self,t):
         if self.const_core:
             return 0
-
-        m_dot = Planet.C_acc*self.Pcol()/self.Pcol_fudge*self.disk.Sigma_mmsn(self.a)*self.r_hill()*self.v_hill()*ct.Myr_to_s/ct.Mearth 
-
+          
+        m_dot = Planet.C_acc*self.Pcol(t)/self.Pcol_fudge*self.disk.Sigma_mmsn(self.a)*self.r_hill()*self.v_hill()*ct.Myr_to_s/ct.Mearth 
+        
         if self.check_iso():
             if self.tstop==None:
                 self.tstop=t
-            return m_dot*np.exp(-Planet.core_smooth*np.abs(self.m_core-self.m_iso))
+            if self.astop==None:
+                self.astop=self.a
+            return 0
         return m_dot
 
     '''
     Atmosphere growth equations
     '''
+    def GCR_clean(self,t): #input in Myr, Mearth
+        a = self.a
+        F_clean = .1*(Planet.GCR_fudge/2.8)*(200/self.disk.temp(a))**1.5*(.02/d.Disk.Z)**.4*(ct.grad_adb/.25)**2.2*(ct.mu_rcb/2.37)**2.2
 
-    def GCR_dusty(self,t):              
-        F_dusty = .16*(Planet.GCR_fudge/3)*(2500/ct.T_rcb)**4.8*(.02/self.disk.Z)**.4*(ct.grad_adb/.17)**3.4*(ct.mu_rcb/2.37)**3.4 #factors from eqn 20 of FC14, plus an efolidng scaling on nebular density
-        GCR=F_dusty*t**.4*(self.m_core/5)**1.7*self.disk.factor(t)**.12 
-        return GCR
+        return F_clean*(1000*t)**.4*(self.m_core/5)*self.disk.factor(t)**.12
 
-    def GCR_dusty_dot(self,t): 
-        return self.GCR_dusty(t)*((.4*t**-1)+1.7/5*(self.m_core/5)**-1*self.m_core_dot(t)+.12*self.disk.factor(t)*-1*self.disk.factor_dot(t))
-
-    def m_atm_dot_dusty(self,t):
+    def GCR_clean_dot(self,t): 
+        return self.GCR_clean(t)*(400*(1000*t)**-1+(self.m_core/5)**-1*(self.m_core_dot(t)/5)+.12*self.disk.factor(t)**-1*self.disk.factor_dot(t))
+    
+    def m_atm_dot_clean(self,t):
         m_core=self.m_core
         m_atm=self.m_atm
 
-        if self.const_atm or m_core<=1:
-            return 0
-        
+        m_dot = self.GCR_clean_dot(t)*m_core+self.GCR_clean(t)*self.m_core_dot(t)
+
+        return m_dot
+    
+    def GCR_dusty(self,t):              
+        F_dusty = .16*(Planet.GCR_fudge/3)*(2500/ct.T_rcb)**4.8*(.02/self.disk.Z)**.4*(ct.grad_adb/.17)**3.4*(ct.mu_rcb/2.37)**3.4 #factors from eqn 20 of FC14, plus an efolidng scaling on nebular density
+        GCR=F_dusty*t**.4*(self.m_core/5)**1.7*self.disk.factor(t)**.12 
+        #print(GCR)
+        return GCR
+
+    def GCR_dusty_alt(self,m_core,t):
+        F_dusty = .16*(Planet.GCR_fudge/3)*(2500/ct.T_rcb)**4.8*(.02/self.disk.Z)**.4*(ct.grad_adb/.17)**3.4*(ct.mu_rcb/2.37)**3.4 #factors from eqn 20 of FC14, plus an efolidng scaling on nebular density
+        GCR=F_dusty*t**.4*(m_core/5)**1.7*self.disk.factor(t)**.12 
+        return GCR
+
+    def GCR_dusty_dot(self,t): 
+        #print(self.disk.factor(t))
+        return self.GCR_dusty(t)*((.4*t**-1)+1.7/5*(self.m_core/5)**-1*self.m_core_dot(t)+.12*self.disk.factor(t)**-1*self.disk.factor_dot(t))
+
+    def m_atm_dot_dusty(self,t):
+
+        m_core=self.m_core
+        m_atm=self.m_atm
+
         m_dot = self.GCR_dusty_dot(t)*m_core+self.GCR_dusty(t)*self.m_core_dot(t)
+
+        return m_dot
+    
+    def m_atm_dot(self,t):
+        m_core=self.m_core
+        m_atm=self.m_atm
+
+        if self.const_atm or m_core<=1 or self.disk.factor(t)<=1e-7:
+            return 0
 
         #Once the GCR hits 50%, runaway accretion kicks in. 
         if m_atm/m_core>=.5: 
             factor=1
+            if not self.toggled:
+                print('disk mass: '+str(self.disk.disk_mass(self.a,100,t)))
+                self.toggled=True
             if m_atm>=ct.m_jup:
-                factor=0
+                if self.t_jup==None:
+                    self.t_jup=t
+                factor = 0
             
-            return m_dot*1e8*factor+(1-factor)*np.exp(-1e6*np.abs(m_atm-ct.m_jup)) #USE EXPONENTIALS TO DRIVE THE MASS TO MJUP
-            
-            #note that the exponential is being used as a smoothing factor to keep derivatives continuous, 
+            return 1e8*factor #*factor #this expression is really large, then goes to 0 when m_atm hits m_jup.
 
-        return m_dot
-    
+        mdot=None
+        if self.disk.atmos=='dusty':
+            mdot=self.m_atm_dot_dusty(t)
+        else:
+            mdot=self.m_atm_dot_clean(t)
+        
+        return mdot
+ 
     '''
     Migration functions
     '''
-    def a_dot_visc(self):
-        return-self.disk.alpha*(ct.k/(ct.mu*ct.m_H)*260*(ct.AU_to_cm)**.5/(ct.G*ct.Msun)**.5)*ct.Myr_to_s/ct.AU_to_cm
+    def a_dot_visc(self,t):
+        loc_disk_m = (self.a*ct.AU_to_cm)**2*self.disk.Sigma_gas_t(self.a,t)
+        m_p = (self.m_core+self.m_atm) * ct.Mearth
+        #print(loc_disk_m/m_p)
+        return -self.disk.alpha*(ct.k/(ct.mu*ct.m_H)*260*(ct.AU_to_cm)**.5/(ct.G*ct.Msun)**.5)*ct.Myr_to_s/ct.AU_to_cm * min(1,loc_disk_m/m_p)
 
-    #normalization torque 
+    #normalization torque
     def Gamma_0(self,t): 
         a=self.a
         m = self.m_core+self.m_atm
@@ -189,15 +272,57 @@ class Planet:
 
         m_core=self.m_core*ct.Mearth
         m_atm=self.m_atm*ct.Mearth
-        
-        if self.use_iso:
+
+        if self.a==np.nan:
+            print('error')
+         
+        #case 1
+        if self.case==1:
             if self.check_iso(): 
-                return 0 #turning of viscous migration
-                #return self.a_dot_visc()
-
-            cgs_a_dot= 2*self.Gamma_tot(t)/((m_core+m_atm)*(ct.G*ct.Msun)**.5*(self.a*ct.AU_to_cm)**-.5)
-
+                #return 0 #turning of viscous migration
+                return self.a_dot_visc(t)
             
-            return cgs_a_dot*ct.Myr_to_s/ct.AU_to_cm
+        #case 2
+        elif self.case==2:
+            if self.m_atm+self.m_core>=ct.m_jup:
+                return 0
         
-        raise Exception('Only iso mass implemented right now')
+        cgs_a_dot= 2*self.Gamma_tot(t)/((m_core+m_atm)*(ct.G*ct.Msun)**.5*(self.a*ct.AU_to_cm)**-.5)
+
+        return cgs_a_dot*ct.Myr_to_s/ct.AU_to_cm
+        
+    def check_gap(self):
+        a=self.a
+        m=(self.m_atm+self.m_core)*ct.Mearth
+        q = m/ct.Msun               #planet to Sun mass ratio
+        h_r= self.disk.H(a)/(a*ct.AU_to_cm)   #disk aspect ratio
+
+        if 1e-4<=q<5e-3:
+            if .14*(q/1e-3)**-2.16*(ct.alpha_ss/1e-2)*(h_r/.05)**6.61 <= self.gap_param:
+                return True
+
+            return False
+
+        elif 5e-3<=q<=1e-2:
+            if (q/5e-3)**-1.00*(ct.alpha_ss/1e-2)**1.26*(h_r/.05)**5.12 <= self.gap_param:
+                return True
+
+            return False
+
+        elif q<1e-4:
+            return False            #I assume low mass planets don't form gaps
+    
+        else:
+            #if the planet has gotten this big, something has gone wrong.
+            raise Exception('check_gap failed. the mass of the planet exceeds upper bounds set for the calculation of gap formation')
+
+    def gap_mass(self):
+        a=self.a
+        disk_mach = a*ct.AU_to_cm/self.disk.H(a)
+        m_sh=(ct.Msun/ct.Mearth)/(disk_mach)**3
+        return m_sh*17*np.sqrt(self.disk.alpha*disk_mach)
+        
+
+    def check_gap_alt(self):
+        return self.m_atm+self.m_core>=self.gap_mass()
+    

@@ -15,8 +15,8 @@ def diff_system(y,t):
     m_atm=y[1]
     a=max(1e-3,y[2]) #prevent a from becoming negative
 
-    if eqn.check_gap(a,(m_atm+m_core)*ct.Mearth):
-        m_atm=ct.m_jup-m_core
+    #if eqn.check_gap(a,(m_atm+m_core)*ct.Mearth):
+     #   m_atm=ct.m_jup-m_core
 
     #print(m_core,m_atm,a)
     m_core_dot = cm.M_core_dot_iso(a,m_core,m_atm,t) 
@@ -80,7 +80,7 @@ def solve(t_init, t_end, y, y0, step,log=True): #linear not implemented yet
 def loop(vals,param_title):
     i=0
     for x in vals:
-        ct.iso_mass=x  #change this to whatever
+        ct.tau_fr=x  #change this to whatever
         sol = solve(ct.t_init,ct.t_end,diff_system,ct.y0,ct.step)
         i+=1
         yield sol
@@ -154,17 +154,10 @@ def mp_graph(vals, param_title):
     plt.setp([a.get_xticklabels() for a in fig.axes[:-1]], visible=False)
     plt.xlabel('Time, Myrs')
 
-'''
-vals=[5,10,15,20,25]
 
-mp_graph(vals,'Iso M')
-plt.suptitle('Effect of Iso M on Planet Evolution')
-plt.show()
-'''
-t = np.logspace(ct.t_init,ct.t_end,ct.step)
-sol = solve(ct.t_init,ct.t_end,diff_system,ct.y0,ct.step)
-print(sol)
-graph(sol[0],sol[1],['mc','ma','a'])
+vals=[1e-2,1e-1,1,1e1,1e2]
 
-format_graph()
+sp_graph(vals,'Tau_fr',2)
+
 plt.show()
+

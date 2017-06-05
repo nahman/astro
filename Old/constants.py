@@ -53,14 +53,14 @@ core_smooth=1e+10 #These params control how quickly the time derivatives of core
 atm_smooth=1e+10  #The decay is exponential in form, and mainly was implemented to keep the derivatives continous.
                   #higher numbers=sharper points. be careful with low numbers; they tend to inflate the final value of the parameter.
 
-iso_mass=10 #core isolation mass in mearths
+iso_mass=20 #core isolation mass in mearths
 
 '''
 Gas parameters
 '''
 
 depletion_time=5   #in Myrs. How long does the gas disk last. (.1,1,10)
-depletion_factor=1 #multiplied against the gas surf density to raise/lower it. 
+depletion_factor=.1 #multiplied against the gas surf density to raise/lower it. 
 alpha_ss=1e-4   #turbulent parameter
 
 
@@ -83,7 +83,7 @@ t_init = -3  #params to test (-3,-2,-1)
 t_end= 1
 
 #number of steps for odeint to use
-step=10000
+step=1000
 
 #initial conds [coremass, atmass, orbital dist] in Mearth, Mearth, AU
 y0=[1e-2,0,1] 
