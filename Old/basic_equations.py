@@ -64,7 +64,7 @@ def Sigma_mmsn(a):                          #minimum mass Solar nebula. A surfac
     return (a/10)**(-1.5)
 
 def Sigma_gas(a):                           #gas surface density of disk. input AU, output cgs
-    return 100*Sigma_mmsn(a)*ct.depletion_factor
+    return 100*Sigma_mmsn(a)
 
 def power_factor(t):                        #power scaling factor that is multiplied with sigma_gas to give gas 
     return (t/10**ct.t_init)**(-5/4)        #surface density the appropriate scaling with time. input Myr.
@@ -145,3 +145,5 @@ def check_iso(m):  #gram input
     if m/ct.Mearth>=ct.iso_mass:
         return True
     return False
+
+print(Sigma_gas(1)*power_factor(10))

@@ -8,7 +8,7 @@ import ID
 import os.path
 
 
-
+#pass in a planet. returns diff system using said planet, for use in odeint
 def diff_wrapper(_planet:pl.Planet):
     
     def diff_system(y,t):
@@ -21,8 +21,6 @@ def diff_wrapper(_planet:pl.Planet):
             a_dot=0
         else:
             a_dot = _planet.a_dot(t)
-        
-        #print(_planet.a)
 
         m_core_dot = _planet.m_core_dot(t)
         m_atm_dot = _planet.m_atm_dot(t)
@@ -33,7 +31,6 @@ def diff_wrapper(_planet:pl.Planet):
     
 def solve(t,planet:pl.Planet):
     sol = odeint(diff_wrapper(planet),planet.state(),t)
-
     return (t,sol)
 
 
@@ -47,8 +44,7 @@ def to_dict(planet:pl.Planet,sol):
     vals['m_atm']=list(sol[1][:,1])
     vals['a']=list(sol[1][:,2])
 
-    #some extra info
-
+    vals['sigma_gas']=list(np.vectorize(planet.disk.Sigma_gas_t)(vals['a'],vals['t']))
 
     #now for some points of interest
     vals['t_stop']=planet.tstop
@@ -58,7 +54,17 @@ def to_dict(planet:pl.Planet,sol):
     d[planet.id]=vals
     return d
 
+#save dictionary in json format
+def write(d:dict,file_name:str):
+    new_dict={} 
+    with open(file_name, 'w') as fp:
+        for key, value in d.items():
+            new_dict[str(key)]=value
+        json.dump(new_dict, fp,indent=4)
+    return json.dumps(new_dict,indent=4)
+
 #feed in planet, solution, filename. adds the new solution to the file, returns the new solution dictionary
+#creates a new file if none exists
 def addto(planet:pl.Planet,sol,file_name:str):
 
     new_dict=to_dict(planet,sol)
@@ -82,66 +88,77 @@ def load(file_name:str):
             loaded_dict[newid]=value
     return loaded_dict
 
-#save dictionary in json format
-def write(d:dict,file_name:str):
-    new_dict={} 
-    with open(file_name, 'w') as fp:
-        for key, value in d.items():
-            new_dict[str(key)]=value
-        json.dump(new_dict, fp,indent=4)
-    return json.dumps(new_dict,indent=4)
-
-
-
-#M_Iso:5,10,15,20,25
-#Tau:.1
-#t_ini: -3,-2,-1
-#dep_time: .1,1,10 #still altering this?
-#alpha: -2,-3,-4,-5
-
-
+#Case 1 testing
 '''
+
 dep_time_vals=[.1,1,10]
-m_iso_vals=[5.001,10.001,15.001,20.001] 
 t_ini_vals=[1e-3,1e-2,1e-1]
-alpha_vals=[1e-2,1e-3,1e-4,1e-5]
+alpha_vals=[1e-2,1e-3,1.0001e-4,1e-5]
 
 y0=[1e-2,0,1]
 t1=np.logspace(-3,1,1000)
 t2=np.logspace(-2,1,1000)
 t3=np.logspace(-1,1,1000)
-i=0
-for m_iso in m_iso_vals:
-    for alpha in alpha_vals:
-        disk = d.Disk('mix',.1,alpha,t_init=1e-3)
-        planet = pl.Planet(y0[0],y0[1],y0[2],m_iso,disk)
-        print(planet.id.name())
-        sol = solve(t1,planet)
-        addto(planet,sol,'more.txt')
-    i+=1
+
+for alpha in alpha_vals:
+    disk = d.Disk('mix',.1,alpha,1)
+    planet = pl.Planet(y0[0],y0[1],y0[2],disk)
+    print(planet.id.file_name())
+    sol = solve(t1,planet)
+    addto(planet,sol,'stuff.txt')
 '''
 
-'''
 
+#case 2 testing
+'''
 y0=[1e-2,0,1]
 t=np.logspace(-3,1,1000)
 
-disk = d.Disk('mix',.1,1e-5,1e-3)
+disk = d.Disk('mix',.1,1e-4,1,'clean')
 
-planet = pl.Planet(y0[0],y0[1],y0[2],5,disk)
-
+planet = pl.Planet(y0[0],y0[1],y0[2],disk,case=2)
 
 sol = solve(t,planet)
 
 write(to_dict(planet,sol),'case_2.txt')
 '''
 
+
+#gap_mass/clean GCR testing
+'''
+
 y0=[1e-2,0,1]
 t=np.logspace(-3,1,1000)
 
-disk2 = d.Disk('mix',.1,1.001e-5,1e-3,atmos='clean')
+disk2 = d.Disk('mix',.1,1.001e-4,1e-3,atmos='clean')
 
 planet2 = pl.Planet(y0[0],y0[1],y0[2],disk2)
 
 sol2=solve(t,planet2)
 addto(planet2,sol2,'gap_mass_test.txt')
+'''
+
+
+
+#Tau_fr studies
+'''
+y0=[1e-2,0,1]
+t=np.logspace(-3,1,1000)
+
+tau_vals = [1e-2,1.0001e-1,1,1e+1,1e+2]
+
+for tau in tau_vals:
+    disk = d.Disk('mix',tau,1e-4,1e-3,'clean')
+    planet = pl.Planet(y0[0],y0[1],y0[2],disk)
+    print(planet.id.file_name())
+    sol = solve(t,planet)
+    addto(planet,sol,'tau_study.txt')
+
+
+for tau in tau_vals:
+    disk = d.Disk('mix',tau,1e-4,1e-3,'dusty')
+    planet = pl.Planet(y0[0],y0[1],y0[2],disk)
+    print(planet.id.file_name())
+    sol = solve(t,planet)
+    addto(planet,sol,'tau_study.txt')
+'''

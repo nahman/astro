@@ -6,8 +6,19 @@ def sci(num):
 
 class Planet_ID: 
 
-    def __init__(self,tau_fr=None,alpha=None,m_iso_mode=None,mode=None,t_init=None,t_dep=None,atmos:'clean or dusty'=None,case=None,_dict=None):
-        #more parameters can be added here. wonder if there is a more concise/pythonic way...
+    def __init__(self,
+                tau_fr=None,
+                alpha=None,
+                m_iso_mode=None,
+                mode=None,
+                t_init=None,
+                t_dep=None,
+                atmos:'clean or dusty'=None,
+                case=None,
+                _dict:'pass in a dictionary containing all relevant parameter values for instant init'=None
+                ):
+
+        #used with optional dictionary normalization
         if _dict!=None:
             alpha= _dict['alpha']
             m_iso_mode= _dict['m_iso_mode']
@@ -22,13 +33,13 @@ class Planet_ID:
         self.alpha=alpha
         self.m_iso_mode=m_iso_mode
         self.mode=mode
-        self.tau_fr=tau_fr
+        self.tau_fr=sci(float(tau_fr))
         self.t_init=t_init
         self.t_dep=t_dep
         self.atmos = atmos
         self.case=case
     
-
+    #outputs the parameter values into a broken string that can be added to plots
     def param_list(self):
         t_dep_or_init='\nt_dep: '+str(self.t_dep)
         if self.mode!='exp':
@@ -44,6 +55,7 @@ class Planet_ID:
            
         return ret
 
+    #outputs the parameter values into a string that can be used for naming
     def file_name(self):
         t_dep_or_init=' t_dep '+str(self.t_dep)
         if self.mode!='exp':
@@ -57,7 +69,6 @@ class Planet_ID:
         ' atmos '+str(self.atmos)+
         ' case '+str(self.case))
         
-
     def __str__(self):
         params = {}
         params['tau_fr']=self.tau_fr    
@@ -70,6 +81,7 @@ class Planet_ID:
         params['case']=self.case
         return json.dumps(params)
     
+    #inverse of __str__
     def fromstr(self,_str):
         d = json.loads(_str)
         self.tau_fr=d['tau_fr']
@@ -86,5 +98,5 @@ class Planet_ID:
 
     def __eq__(self,other):
         return (self.alpha,self.m_iso_mode,self.mode,self.tau_fr,self.t_init,self.atmos,self.case) \
-        == (other.alpha,other.m_iso,other.mode,other.tau_fr,other.t_init,other.t_dep,other.atmos,other.case)
+        == (other.alpha,other.m_iso_mode,other.mode,other.tau_fr,other.t_init,other.t_dep,other.atmos,other.case)
 
