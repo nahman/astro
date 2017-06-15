@@ -7,16 +7,18 @@ from scipy.integrate import quad
 class Disk:
     Z=2e-2 #gas metallicity
     std_temp=260 #at 1AU
+    gamma=1
 
     def __init__(
-                self, 
-                mode: "type of gas depletion to use. 'pow' for power-law or 'exp' for exponential; 'mix' starts as power and becomes exp", 
+                self,    
                 tau_fr: 'dimensionless stopping time', 
                 alpha: 'from shakura sunyaev prescription for viscosity', 
+                t_s: 'timescale parameter for new Sigma gas',
                 Sigma_0: 'initial gas disk density in 100s of sigma_mmsn'=1,
                 atmos: "'clean' for clean envelope, 'dusty' for an envelope with dust grains. affects atm accretion"='clean', 
                 dep_time: 'e-folding time of gas depletion under the exponential law. gets auto-calculated in mixed law. in Myr' =5, 
-                t_init: 'in Myr. acts as a sort of normalization to the power law.'=1e-3, 
+                t_init: 'in Myr. acts as a sort of normalization to the power law.'=1e-3,   
+                mode: "deprecated. type of gas depletion to use. 'pow' for power-law or 'exp' for exponential; 'mix' starts as power and becomes exp"='mix', 
                 ):
 
         self.mode=mode
@@ -24,6 +26,7 @@ class Disk:
         self.alpha=alpha
         self.Sigma_0=Sigma_0
         self.atmos=atmos
+        self.t_s=t_s
 
         if mode=='mix':
             #Note that 10AU is about where xrays carve a gap in the disk. Thus we use 10AU as the 'disk edge'
@@ -35,7 +38,13 @@ class Disk:
         
         self.t_switch = None #used to store time at which we switch from power to exp law, assuming self.mixed is true.
 
-    
+        self.R1=self.R_1_func(t_s)
+ 
+        self.nu1=self.nu(self.R1)
+
+        self.C=self.normalize(10*ct.m_jup)
+        
+  
     #Functions that change based on disk type
     
     #gives initial surface density.
@@ -63,13 +72,13 @@ class Disk:
             return exp_factor_dot
         return -5/4*1/(self.t_init)*(t/self.t_init)**(-9/4)
 
-    #time-evolving surface density of disk
+    #time-evolving surface density of
     def Sigma_gas_t(self,a,t):
         return self.factor(t)*self.Sigma_gas(a)
 
     #volumetric density of gas. input AU, output CGS
     def rho_gas(self,a,t):                             
-        return self.Sigma_gas_t(a,t)/Disk.H(a)
+        return self.new_Sigma_gas_t(a,t)/Disk.H(a)
     
     #Pressure of gas. input AU, output CGS. 
     def P_gas(self,a,t):                               
@@ -77,12 +86,67 @@ class Disk:
     
     #derivate of pressure wrt a
     def diff_P_gas(self,a,t):
-        return self.factor(t)*-15*(a/10)**-2.5*Disk.c_s(a)*Disk.Omega(a)+self.Sigma_gas_t(a,t)*-1.75*(ct.k*260*ct.G*ct.Msun/(ct.mu*ct.m_H*ct.AU_to_cm**3))**.5*a**-2.75
+        gamma=Disk.gamma
+        T=self.T(t)
+        r=self.r(a)
+        R1=self.R1
+
+        return 1/R1*self.Sigma_0*self.C/(ct.pi*3*self.nu1)*T**(-(5/2-gamma)/(2-gamma))*(-gamma*r**(-gamma-1)*np.exp(-r**(2-gamma)/T)+r**-gamma*np.exp(-r**(2-gamma)/T)*(2-gamma)*-r**(1-gamma)/T)*self.c_s(a)*self.Omega(a) \
+        + self.new_Sigma_gas_t(a,t)*-1.75*(ct.k*260*ct.G*ct.Msun/(ct.mu*ct.m_H*ct.AU_to_cm**3))**.5*a**-2.75
     
     #mass of disk in between two radii. input in AU, output in Mearth. 
-    def disk_mass(self,start,end,t):                    
-        return 4*ct.pi*1e4*ct.AU_to_cm**2*self.factor(t)/ct.Mearth*((end/10)**.5-(start/10)**.5)
+    def disk_mass(self,start,end,t,show_acc=False):   
 
+        f = lambda a: self.new_Sigma_gas_t(a,t)*2*ct.pi*a*ct.AU_to_cm**2/ct.Mearth
+
+        if show_acc:
+            return quad(f,start,end)     
+        return quad(f,start,end)[0] 
+
+
+    #viscosity. input AU, output in AU^2/Myr
+    def nu(self, a): 
+        return self.alpha*self.c_s(a)*self.H(a)*ct.AU_to_cm**-2*ct.Myr_to_s
+    
+    def r(self,a):
+        return a/self.R1
+    
+    def T(self,t):
+        return t/self.t_s+1
+
+    def R_1_func(self,t_s):
+        gamma = Disk.gamma
+        return t_s*3*(2-gamma)**2*self.alpha*ct.k*260/(ct.mu*ct.m_H)*(ct.AU_to_cm**3/(ct.G*ct.Msun))**.5*ct.AU_to_cm**-2*ct.Myr_to_s
+    
+    def new_Sigma_gas_t(self,a,t):
+        gamma = Disk.gamma
+        ret = self.Sigma_0*self.C/(3*ct.pi*self.nu1*self.r(a)**gamma) * self.T(t)**(-(5/2-gamma)/(2-gamma))*np.exp(-self.r(a)**(2-gamma)/self.T(t))
+        return ret
+
+    def check_stbl(self,a):
+        Q=self.c_s(a)*self.Omega(a)/(ct.pi*ct.G*self.new_Sigma_gas_t(a,0))
+
+        if Q>=1:
+            return True
+        return False
+
+    #analytic expression for initial disk mass. does not factor in sigma_0
+    def init_disk_mass(self):
+        return 2/(3*self.nu1)*self.C*self.R1**2*ct.AU_to_cm**2/ct.Mearth
+    
+    #calculates C such that the total mass of the disk is some disk_mass
+    def normalize(self,disk_mass):
+        return disk_mass*ct.Mearth/ct.AU_to_cm**2*3*self.nu1/2/self.R1**2
+
+    #Sigma gas divided by Sigma gas @t=0.
+    def new_factor(self,a,t):
+        gamma = Disk.gamma
+        ret = self.new_Sigma_gas_t(a,t)/self.new_Sigma_gas_t(a,0)
+        return ret
+    
+    def new_factor_dot(self,a,t):
+        f = lambda t: self.new_factor(a,t)
+        return derivative(f,t,1e-4)
 
     #Functions that work for all types of disks
     

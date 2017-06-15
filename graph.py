@@ -70,14 +70,13 @@ def period(a):
 
 #Gap opening criterion outlined in DM13
 def gap_mass(a,alpha):
-
+    alpha = float(alpha)
     disk_mach = a*ct.AU_to_cm/d.Disk.H(a)
     m_sh=(ct.Msun/ct.Mearth)/(disk_mach)**3
     return m_sh*17*(alpha*disk_mach)**.5
 
 #plots mass of planet versus period. gap mass overplotted.
 def p_plot(planet_id:ID.Planet_ID,sol_dict:dict): 
-
     p_list = np.vectorize(period)(sol_dict['a'])
     plt.loglog(p_list, [x+y for x,y in zip(sol_dict['m_core'],sol_dict['m_atm'])],label='m_p',color='k')
     plt.loglog(p_list,np.vectorize(gap_mass)(sol_dict['a'],planet_id.alpha),label='gap-opening mass',linestyle='dashed',color='r')
@@ -124,7 +123,7 @@ def save_graphs(filename:str,plot_mode: "set to p_plot to enforce period plottin
 
         else:
             graph(value) 
-            format_graph(title='params vs time',xlabel='time, myr',ylabel='mass, mearth or dist, AU')
+            format_graph(title='masses, dist vs time',xlabel='time, myr',ylabel='mass, mearth or dist, AU')
 
         plt.figtext(1,.85,'params',fontsize=13)
         plt.figtext(1,.6,key.param_list())
@@ -180,7 +179,3 @@ def three_panel(filename:str,paramname:str,title:str):
     #note that params_list needs to be edited to omit the paramter being varied
     
     plt.show()
-
-
-
-

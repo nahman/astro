@@ -30,4 +30,3 @@ gap_param = 1.0 #NOT IN USE RN If sigma_gap/sigma_0 is less than this, we say a 
 #Migrational Torque
 beta_sigma=1.5 #these are parameters for the torque calculation in migration.py
 beta_t=.429
-
