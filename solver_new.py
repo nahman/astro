@@ -11,6 +11,8 @@ import os.path
 from os import remove
 import copy
 
+import matplotlib.pyplot as plt
+
 toggled=False
 
 #pass in a planet. returns diff system using said planet, for use in odeint
@@ -19,14 +21,16 @@ def diff_wrapper(_planet:pl.Planet):
     def diff_system(y,t):
         nonlocal _planet
 
-        if _planet.a<=1e-2 or y[2]<=1e-2:
+        if _planet.a<=5e-3 or y[2]<=5e-3:
             global toggled
             if not toggled:
                 print('planet died')
+                _planet.died=True
+                _planet.t_death=t
                 toggled=True
-            _planet.a=1e-2  #set a min value for orbital distance
-            y[2]=1e-2
-            
+            _planet.a=5e-3  #set a min value for orbital distance
+            y[2]=5e-3
+
             return [0,0,0] 
         
         _planet.redefine(y[0],y[1],y[2],t)
@@ -34,7 +38,7 @@ def diff_wrapper(_planet:pl.Planet):
         a_dot = _planet.a_dot(t)
         m_core_dot = _planet.m_core_dot(t)
         m_atm_dot = _planet.m_atm_dot(t)
-
+        #print(m_core_dot,m_atm_dot,a_dot)
         return [m_core_dot,m_atm_dot,a_dot]
 
     return diff_system
@@ -49,10 +53,10 @@ def solve(t,planet:pl.Planet,info=False):
 
 #check if the solution dictionary makes sense
 def sol_check(sol:dict):
-    min_c=1e-3
+    min_c=1e-7
     max_c=1e3
 
-    min_atm=0
+    min_atm=-10
     max_atm=1e3
 
     min_a=0
@@ -60,42 +64,47 @@ def sol_check(sol:dict):
 
     _l=zip(list(sol[:,0]),list(sol[:,1]),list(sol[:,2]))
     for x , y , z in _l:
-        if not min_c<x<max_c or not min_atm<=y<max_atm or not min_a<z<max_a:
+        if not min_c<x<max_c or not min_atm<= y<max_atm or not min_a<z<max_a:
             print('possible error: '+'mc '+str(x)+' ma '+str(y)+' a '+str(z))
             return False
     return True
     
 #Very experimental
-#might not be catching all 'excess work done' cases
-def wiggle_solve(t,planet:pl.Planet,max_iter=5):
+#Seems to be rather robust though
+
+#solves the system, then checks if the output makes sense. if not, retry solving the system,
+#after altering alpha and pebble size by insignificant amounts
+def wiggle_solve(t,planet:pl.Planet,max_iter=5,accuracy=5):
     planetcopy=copy.deepcopy(planet)
     sol = solve(t,planetcopy)
-
     alpha=planet.disk.alpha
     alpha_exp = np.floor(np.log10(alpha))
-    tau=planet.disk.tau_fr
-    tau_exp= np.floor(np.log10(tau))
+    peb=planet.disk.pebble_size
+    peb_exp=np.floor(np.log10(peb))
 
     attempt=0
     while not sol_check(sol[1]):
         if(attempt>max_iter):
             raise Exception('unable to solve')
-        print('wiggling')
+        print('wiggling...')
         planetcopy=copy.deepcopy(planet)
-        planetcopy.disk.alpha=np.random.randint(-99,99)*(10**(alpha_exp-5))+alpha
-        planetcopy.disk.tau_fr=np.random.randint(-99,99)*(10**(tau_exp-5))+tau
-        
-        #print('alpha: '+str(planetcopy.disk.alpha))
-        #print('tau: '+str(planetcopy.disk.tau_fr))
+        planetcopy.disk.alpha=np.random.randint(-99,99)*(10**(alpha_exp-accuracy))+alpha
+        planetcopy.disk.pebble_size=np.random.randint(-99,99)*(10**(peb_exp-accuracy))+peb
         
         sol = solve(t,planetcopy)
         attempt+=1
+    
+    #transfer parameters
+    planet.died=planetcopy.died
+    planet.t_death=planetcopy.t_death
+    planet.astop=planetcopy.astop
+    planet.tstop=planetcopy.tstop
     return sol
 
 #Convert planet - solution pair to single entry dictionary keyed by planet_id. Makes writing to Json easier.
 #Probably unecessary saving t. each file should really share the same t.
 
-def to_dict(planet:pl.Planet,sol):
+def to_dict(_planet:pl.Planet,sol):
     vals={}
     vals['t']=list(sol[0])
     vals['m_core']=list(sol[1][:,0])
@@ -103,14 +112,16 @@ def to_dict(planet:pl.Planet,sol):
     vals['a']=list(sol[1][:,2])
 
     #NOT CGS
-    vals['sigma_gas']= [x*ct.AU_to_cm**2/ct.Mearth for x in list(np.vectorize(planet.disk.new_Sigma_gas_t)(vals['a'],vals['t']))]
+    vals['sigma_gas']= [x*ct.AU_to_cm**2/ct.Mearth for x in list(np.vectorize(_planet.disk.new_Sigma_gas_t)(vals['a'],vals['t']))]
+    #vals['pcol_factor']= [planet.P_col_factor(x,y,z) for x,y,z in zip(vals['m_core'],vals['a'],vals['t'])]
 
     #now for some points of interest
-    vals['t_stop']=planet.tstop
-    vals['a_stop']=planet.astop
-
+    vals['t_stop']=_planet.tstop
+    vals['a_stop']=_planet.astop
+    vals['died']=_planet.died
+    vals['t_death']=_planet.t_death
     d={}
-    d[planet.id]=vals
+    d[_planet.id]=vals
     return d
 
 #save dictionary in json format
@@ -152,29 +163,17 @@ def delete(filename:str):
         os.remove(filename)
     except:
         pass
+ 
 
-
-#Case 1 testing
-alpha_vals=[1.00013e-2,1.000012e-3,1.000012e-4,1.000012e-5]
-tau_vals=[1.00015e-2,1.00012e-1,1.00011,1.0012e+1,1.00011e+2]
-a_vals=[2,3,4,5,6,7,8,9,10]
-
-y0=[1e-2,0,1]
+delete('core_growth.txt')
 t1=np.logspace(-3,1,1000)
 
-#disk = d.Disk(1e-1,1e-4,1)
-#planet = pl.Planet(y0[0],y0[1],y0[2],disk,case=1)
-#sol=solve(t1,planet)
-#addto(planet,sol,'error.txt')
+disk = d.Disk(1,1e-4,1)
 
-'''
-for tau in tau_vals:
-    for alpha in alpha_vals:
-        disk = d.Disk(tau,alpha,1e-1)
-        planet = pl.Planet(y0[0],y0[1],y0[2],disk,case=1)
-        print(planet.id.file_name())
-        sol=solve(t1,planet)
-        toggled=False
-        addto(planet,sol,'t_s_1e-1.txt')
-'''
+planet = pl.Planet(1e-2,0,1,disk,corrected=True)
+
+sol = wiggle_solve(t1,planet)
+addto(planet,sol,'core_growth.txt')
+
+
 

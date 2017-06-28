@@ -4,14 +4,34 @@ import disk as d
 import ID
 import json
 from scipy.misc import derivative
+import matplotlib.pyplot as plt
 
+def cubic(a2,a1,a0):
+  #gives the real solution to the cubic equation
+  #(Wolfram)
+
+  sqrt = np.sqrt
+  Q = (3*a1-a2**2)/9
+  R = (9*a2*a1 -27*a0 -2*a2**3)/54
+  D = Q**3 +R**2
+
+  #now the number become complex
+  S = (R+sqrt(D+0j))**(1./3)
+  T = (R-sqrt(D+0j))**(1./3)
+
+  #only the first solution is real; return this one
+  x1 = -a2/3 +(S+T)
+  #x2 = -a2/3 -(S+T)/2 +0.5j*sqrt(3)*(S-T)
+  #x3 = -a2/3 -(S+T)/2 -0.5j*sqrt(3)*(S-T)
+  x1=x1.real
+  #print(x1)
+  return x1
+
+     
 class Planet:
-    rho_solid=5.0
+    
     C_acc=1.0
-    GCR_fudge=2.0
-    Pcol_fudge=3.0
-    smooth=1e10
-    gap_param=1.0
+    GCR_fudge=2.8
 
     def __init__(
                 self,
@@ -25,12 +45,13 @@ class Planet:
                 const_core: 'sets time deriv of core mass to 0'=False,
                 const_atm: 'sets time deriv of atm mass to 0'=False,
                 const_a: 'sets time deriv of orbital distance to 0'=False,    
+                corrected=False
                 ):
 
         self.a=a0                       #core orbital radius
         self.m_core=m_c0                #core mass
         self.m_atm=m_a0                 #atmospher mass
-        self.t=disk.t_init              #planet age
+        self.t=1e-3                     #initial planet age in myr
         self.disk=disk                  #disk object that the planet is in
         self.m_iso_mode = m_iso_mode    
 
@@ -46,12 +67,13 @@ class Planet:
         self.const_a=const_a
         self.case=case
         
-        self.tstop=None                 #will be set to the time at which the core stops growing
+        self.tstop=0
+                         #will be set to the time at which the core stops growing
         self.astop=None                 #will be set to orbital distance at which core stops growing
         
 
         self.id=ID.Planet_ID(           #the 'ID' object of the planet, used for easy identification. check ID.py for more info
-                    disk.tau_fr,
+                    disk.pebble_size,
                     disk.alpha,
                     m_iso_mode,
                     disk.t_s,
@@ -60,7 +82,10 @@ class Planet:
         
         self.t_jup=None                 #will be set to time of jupiter formation.
         self.toggled=False              #used to ensure certain things are printed only once. doesn't affect anything significant.
+        self.died=False
+        self.t_death=None
 
+        self.corrected=corrected
 
     def redefine(self,mc,ma,a,t):       #this function runs at every step while the planet's system of odes is being solved.
 
@@ -69,11 +94,7 @@ class Planet:
         self.m_atm=ma
         self.a=a
         self.t=t
-        #print('a: '+str(a))
-        #print('Sigma: '+str(self.disk.new_Sigma_gas_t(a,t)))
-        #print('m_c: '+str(mc))
-        #print('m_a: '+str(ma))
-        #recalculate the new pebble isolation mass (which is dependent on a), if necessary
+
         if self.m_iso_mode=='auto':
             self.m_iso=self.gap_mass()
 
@@ -102,8 +123,10 @@ class Planet:
         return 2*np.pi/self.Omega() * (1/60) * (1/60) * (1/24)
 
     #hill radius, in cm
-    def r_hill(self):
-        return self.a*ct.AU_to_cm*((self.m_core+self.m_atm)*ct.Mearth/(3*ct.Msun))**(1/3)
+    def r_hill(self,mass=None,a=None):
+        if mass == None and a == None:
+            return self.a*ct.AU_to_cm*((self.m_core+self.m_atm)*ct.Mearth/(3*ct.Msun))**(1/3)
+        return a*ct.AU_to_cm*(mass*ct.Mearth/(3*ct.Msun))**(1/3)
     
     #hill velocity, cm/s
     def v_hill(self):
@@ -111,11 +134,14 @@ class Planet:
     
     #core radius, cm
     def r_core(self):
-        return ((3*self.m_core*ct.Mearth)/(4*np.pi*self.rho_solid))**(1/3)
+        return ((3*self.m_core*ct.Mearth)/(4*np.pi*self.disk.rho_solid))**(1/3)
     
     #core size in Hill units. 
-    def alpha_core(self):                   
+    def alpha_core_alt(self):                   
         return self.r_core()/self.r_hill()
+    
+    def alpha_core(self):
+        return 1e-3*(5/self.a)*(self.disk.rho_solid/3)**(-1/3)
 
     #bondi radius, cm. c_s should be in cgs
     def r_bondi(self,c_s: 'in cm/s'):                           
@@ -128,7 +154,7 @@ class Planet:
     #headwind factor: multiply this with keplerian velocity to find headwind. Look in OK12 for more info.
     def eta(self,t):                                 
         a=self.a
-        return -1/2*(d.Disk.c_s(a)/(self.v_kep()**2))**2*(a*ct.AU_to_cm/self.disk.P_gas(a,t))*self.disk.diff_P_gas(a,t) 
+        return -1/2*(d.Disk.c_s(a)/self.v_kep())**2*(a*ct.AU_to_cm/self.disk.P_gas(a,t))*self.disk.diff_P_gas(a,t) 
 
     #headwind velocity, cm/s
     def v_hw(self,t):                                
@@ -145,62 +171,78 @@ class Planet:
     '''
     Core Growth Functions
     '''
-    def Pcol(self,t):
-        zeta = self.zeta_w(t)
-        r_H = self.r_hill()
-        v_H = self.v_hill()
-        alpha = self.alpha_core()
-        tau_fr=self.disk.tau_fr
+    #From OK12
+    def impactB(self,t):
+        zeta_w = self.zeta_w(t)
+        St=self.disk.tau(self.a,t)
 
-        #settling calc
-        coeff = [1,2/3*zeta,0,-8*tau_fr]
-        coeff=np.nan_to_num(coeff)
-        roots = np.roots(coeff)
-        b_set_arr=roots.real[abs(roots.imag)<1e-5]
-        b_set=max(b_set_arr)                                #get real positive root
-        
-        v_a_set=3/2*b_set+zeta
-        f_set = np.exp(-(tau_fr/min(12/zeta**3,2))**.65)    #smoothing factor
-        P_col_set = 2*b_set*f_set*v_a_set 
+        al = self.alpha_core()
 
-        #hyperbolic calc
-        v_a_hyp=zeta*(1+4*tau_fr**2)**.5/(1+tau_fr)**2
-        b_hyp=alpha*(1+6/(alpha*v_a_hyp**2))**.5
-        P_col_hyp = 2*b_hyp*v_a_hyp
+        bset=0
+        bhyp=0
+        b3b=0
 
-        #three body calc
-        b_3b=1.7*alpha+1/tau_fr
-        v_a_3b=3.2
-        f_3b=np.exp(-(.7*zeta/tau_fr)**5)                   #smoothing factor
+        St_crit = min(12/zeta_w**3, 2)
+        if St<=St_crit:
+            bset = cubic(2*zeta_w/3, 0, -8*St) *np.exp(-(St/St_crit)**0.65)
+        elif St>=St_crit and St>=zeta_w:
+            b3b = (2*0.85*al**0.5 +1/St) *np.exp(-(0.7*zeta_w/St)**5)
+        else:#intermediate case (give all)
+            va = zeta_w/(1+St**2) *np.sqrt(1+4*St**2) #approach velocity
+            bhyp = al *np.sqrt(1+6/(al*va**2))
+            b3b = (2*0.85*al**0.5 +1/St) *np.exp(-(0.7*zeta_w/St)**5)
+            bset = cubic(2*zeta_w/3, 0, -8*St) *np.exp(-(St/St_crit)**0.65)
+        return [bset, bhyp, b3b]
 
+    #From OK12
+    def P_cols(self,t):
 
-        P_col_3b = 2*b_3b*f_3b*v_a_3b
+        """
+        returns [bsets, vsets]
 
-        #check if we should force a regime or let the max pick a regime for us.
+        returns the analalytical collision radius and approach velocity 
+        in dimensionless units
+        """
+        #analytical collision rate
+        #Approach velocity
 
-        if self.reg=='auto':
-            ret = max(P_col_set,P_col_hyp,P_col_3b)
+        zeta_w = self.zeta_w(t)
+        St=self.disk.tau(self.a,t)
 
-            #I just often use this for checking
-            '''
-            if ret==P_col_set:
-                print('set: '+str(P_col_set)+'3b: '+str(P_col_3b))
-                
-            elif ret==P_col_hyp:
-                print('hyp')
-            else:
-                print('3b: '+str(P_col_3b)+'set: '+str(P_col_set))
-            '''
+        [bset, bhyp, b3b] = self.impactB(t)
+        v3b = 3.2
+        vhyp = zeta_w/(1+St**2) *np.sqrt(1+4*St**2)
+        vset = 3*bset/2 +zeta_w 
 
-            return ret
-        elif self.reg =='set':
-            return P_col_set
-        elif self.reg =='hyp':
-            return P_col_hyp
-        elif self.reg=='3b':
-            return P_col_3b
+        return [[bset,bhyp,b3b],[vset,vhyp,v3b]]
+    
+    #From OK12
+    def P_col(self,t):
+        """
+        Obtain the (dimensionless) collision rate in the 2D regime:
+            
+            Pcol = 2R_col va
+            (collision rate per unit sigma_d)
+        """
+        [barr, varr] = self.P_cols(t)
+        Pcols = 2*np.array(barr)*np.array(varr)
+        #pick the largest Pcol
+        id = np.argmax(Pcols)
+        '''
+        if id==0:
+            print('set',t)
+        elif id==1:
+            print('hyp',t)
         else:
-            raise Exception('error in Pcol. no regime with such name')
+            print('3b',t)
+        '''
+        factor = 1
+        if self.corrected:
+            factor = barr[id]*self.r_hill()/self.disk.H_p(self.a,t)
+
+        Pcol_ret,bcol_ret = Pcols[id]*min(1,factor) , barr[id]
+
+        return [Pcol_ret,bcol_ret]
 
     #time derivative of core mass, in Mearth/Myr
     def m_core_dot(self,t):
@@ -209,50 +251,57 @@ class Planet:
             return 0
         
         if self.check_iso():
-            if self.tstop==None:
-                self.tstop=t
-            if self.astop==None:
-                self.astop=self.a
+            if not self.toggled:
+                if np.around(self.m_core,5)==np.around(self.m_iso,5) or self.tstop==0:
+                    self.tstop=t
+                if self.astop==None:
+                    self.astop=self.a
+                self.toggled=True
             return 0
           
-        m_dot = Planet.C_acc*self.Pcol(t)/self.Pcol_fudge*self.disk.Sigma_mmsn(self.a)*self.r_hill()*self.v_hill()*ct.Myr_to_s/ct.Mearth  
+        m_dot = Planet.C_acc*self.P_col(t)[0]*self.disk.Sigma_mmsn(self.a)*self.r_hill()*self.v_hill()*ct.Myr_to_s/ct.Mearth  
   
         return m_dot
 
     '''
-    Atmosphere growth equations
+    Atmosphere growth functions
     '''
     def GCR_clean(self,t): #input in Myr, Mearth
+        t_dif=t-self.tstop
+        
         a = self.a
         F_clean = .1*(Planet.GCR_fudge/2.8)*(200/self.disk.temp(a))**1.5*(.02/d.Disk.Z)**.4*(ct.grad_adb_clean/.25)**2.2*(ct.mu_rcb/2.37)**2.2
-
-        return F_clean*(1000*t)**.4*(self.m_core/5)*self.disk.new_factor(a,t)**.12
+        
+        return F_clean*(1000*t_dif)**.4*(self.m_core/5)*self.disk.new_factor(a,t)**.12
 
     def GCR_clean_dot(self,t): 
-        ret=self.GCR_clean(t)*(400*(1000*t)**-1+(self.m_core/5)**-1*(self.m_core_dot(t)/5)+.12*self.disk.new_factor(self.a,t)**-1*self.disk.new_factor_dot(self.a,t))
+        
+        t_dif=t-self.tstop #avoid non-analyticity @t=0 errors
+        if t_dif<=0:
+            return 0
+
+        ret=self.GCR_clean(t)*400*(1000*t_dif)**-1  
+
         return ret
     
     def m_atm_dot_clean(self,t):
         m_core=self.m_core
-        m_atm=self.m_atm
 
         #I shouldn't need to calculate the latter half since it will be 0.
-        m_dot = self.GCR_clean_dot(t)*m_core#+self.GCR_clean(t)*self.m_core_dot(t)
+        m_dot = self.GCR_clean_dot(t)*m_core #+self.GCR_clean(t)*self.m_core_dot(t)
         
         return m_dot
     
-    def GCR_dusty(self,t):              
-        F_dusty = .16*(Planet.GCR_fudge/3)*(2500/ct.T_rcb)**4.8*(.02/self.disk.Z)**.4*(ct.grad_adb/.17)**3.4*(ct.mu_rcb/2.37)**3.4 #factors from eqn 20 of FC14, plus an efolidng scaling on nebular density
-        GCR=F_dusty*t**.4*(self.m_core/5)**1.7*self.disk.new_factor(self.a,t)**.12 
-        return GCR
+    def GCR_dusty(self,t):    
+        t_dif = t-self.tstop
 
-    def GCR_dusty_alt(self,m_core,t):
         F_dusty = .16*(Planet.GCR_fudge/3)*(2500/ct.T_rcb)**4.8*(.02/self.disk.Z)**.4*(ct.grad_adb/.17)**3.4*(ct.mu_rcb/2.37)**3.4 #factors from eqn 20 of FC14, plus an efolidng scaling on nebular density
-        GCR=F_dusty*t**.4*(m_core/5)**1.7*self.disk.new_factor(self.a,t)**.12 
+        GCR=F_dusty*t_dif**.4*(self.m_core/5)**1.7*self.disk.new_factor(self.a,t)**.12 
         return GCR
 
     def GCR_dusty_dot(self,t): 
-        return self.GCR_dusty(t)*((.4*t**-1)+1.7/5*(self.m_core/5)**-1*self.m_core_dot(t)+.12*self.disk.new_factor(self.a,t)**-1*self.disk.new_factor_dot(self.a,t))
+        t_dif = t-self.tstop
+        ret = self.GCR_dusty(t)*.4*t_dif**-1
 
     def m_atm_dot_dusty(self,t):
 
@@ -264,6 +313,7 @@ class Planet:
         return m_dot
     
     def m_atm_dot(self,t):
+        
         m_core=self.m_core
         m_atm=self.m_atm
 
@@ -272,15 +322,15 @@ class Planet:
 
         #Once the GCR hits 50%, runaway accretion kicks in. 
         if m_atm/m_core>=.5 and self.disk.disk_mass(self.a,100,t)>=ct.m_jup: 
-            return 1e8 #*factor #this expression is really large, then goes to 0 when m_atm hits m_jup.
-        
+            return 1e5 
+
         mdot=None
         if self.disk.atmos=='dusty':
             mdot=self.m_atm_dot_dusty(t)
-        else:
+        elif self.disk.atmos=='clean':
             mdot=self.m_atm_dot_clean(t)
-        
-        #print(mdot)
+        else:
+            raise Exception('check your clean/dusty input')
         return mdot
  
     '''
@@ -313,6 +363,7 @@ class Planet:
         #case 1
         if self.case==1:
             if self.check_iso(): 
+                #print(self.m_iso)
                 #return 0 #turning of viscous migration
                 return self.a_dot_visc(t)
             
@@ -324,6 +375,7 @@ class Planet:
         cgs_a_dot= 2*self.Gamma_tot(t)/((m_core+m_atm)*(ct.G*ct.Msun)**.5*(self.a*ct.AU_to_cm)**-.5)
         return cgs_a_dot*ct.Myr_to_s/ct.AU_to_cm
         
+    #from Fung, Shi, Chiang 2014
     def check_gap(self):
         a=self.a
         m=(self.m_atm+self.m_core)*ct.Mearth
@@ -348,15 +400,11 @@ class Planet:
         else:
             #if the planet has gotten this big, something has gone wrong.
             raise Exception('check_gap failed. the mass of the planet exceeds upper bounds set for the calculation of gap formation')
-
+        
+    #from Duffel/McFayden 13
     def gap_mass(self):
         a=self.a
         disk_mach = a*ct.AU_to_cm/self.disk.H(a)
         m_sh=(ct.Msun/ct.Mearth)/(disk_mach)**3
         return m_sh*17*np.sqrt(self.disk.alpha*disk_mach)
-        
-
-    def check_gap_alt(self):
-        return self.m_atm+self.m_core>=self.gap_mass()
-    
 

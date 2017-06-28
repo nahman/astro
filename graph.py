@@ -25,19 +25,30 @@ def load(file_name:str):
 #sol_dict is a dict itself, keying time t by 't', core mass by 'm_core', atmosphere mass by 'm_atm', orbital distance by 'a'
 #change var_of_interest to 'm_core', 'm_atm', or 'a' for a graph of only that variable
 
-def graph(sol_dict,var_of_interest = 'all'): 
-    colors = ['b','g','r','c','m','y']
+def graph(sol_dict,var_of_interest = 'all',show_GCR=False): 
     if var_of_interest!='all':
         plt.plot(sol_dict['t'], sol_dict[var_of_interest], label=var_of_interest)
         return 
+    
+    t= sol_dict['t']
+    plt.plot(t,sol_dict['m_core'],color='r',label='m_core')
+    plt.plot(t,sol_dict['m_atm'],color='c',label='m_atm')
+    
+    if show_GCR:
+        plt.plot(t1,value['GCR_mass'],label='expected atm mass',linestyle='dotted')
 
+    plt.plot(t,sol_dict['a'],color='orange',label='a')
+    plt.plot(t,sol_dict['sigma_gas'],color='g',label='sigma_gas')
+
+    '''
     for key,value in sol_dict.items():
         if key!='t' and type(value)==list:
             plt.plot(sol_dict['t'],sol_dict[key],label=key)
+    '''
 
 def format_graph(title=None,xlabel=None,ylabel=None,grid=False,log=True,t_stop=0):
-    plt.legend(loc='best')
-    
+    plt.legend(bbox_to_anchor=(1.2, .4),
+           bbox_transform=plt.gcf().transFigure)
     if grid:
         plt.grid()
     if log:
@@ -49,8 +60,10 @@ def format_graph(title=None,xlabel=None,ylabel=None,grid=False,log=True,t_stop=0
         plt.ylabel(ylabel)
     if title !=None:
         plt.title(title,fontsize=14)
-    
+
     plt.tight_layout()
+    plt.ylim(ymin=1e-4)
+
     #plt.show()
 
 
@@ -91,7 +104,7 @@ def a_plot(planet_id:ID.Planet_ID,sol_dict:dict):
         index+=1
 
     plt.loglog(sol_dict['a'], [x+y for x,y in zip(sol_dict['m_core'],sol_dict['m_atm'])],label='planet mass',color='.5')
-    #plt.loglog(sol_dict['a'],np.vectorize(gap_mass)(sol_dict['a'],planet_id.alpha),label='gap-opening mass',color='r',linewidth=.5)
+    plt.loglog(sol_dict['a'],np.vectorize(gap_mass)(sol_dict['a'],planet_id.alpha),label='gap-opening mass',color='r',linewidth=.5)
     plt.loglog(sol_dict['a'],sol_dict['m_core'],label='m_core',color='k',linestyle='dotted')
     plt.loglog(sol_dict['a'],sol_dict['m_atm'],label='m_atm',color='k',linestyle='dashed')
     plt.ylim(1e-2,1e+3)
@@ -123,11 +136,16 @@ def save_graphs(filename:str,plot_mode: "set to p_plot to enforce period plottin
 
         else:
             graph(value) 
+            if value['died']:
+                plt.axvline(x=value['t_death'],color='k',linestyle='dashed',label='t_death')
             format_graph(title='masses, dist vs time',xlabel='time, myr',ylabel='mass, mearth or dist, AU')
-
+        
         plt.figtext(1,.85,'params',fontsize=13)
-        plt.figtext(1,.6,key.param_list())
-
+        if value['died']:
+            plt.figtext(1,.6,key.param_list()+'\nplanet died')
+        else:
+            plt.figtext(1,.6,key.param_list())
+        
         f.savefig(key.file_name()+'.pdf', bbox_inches='tight')
         plt.close()
         
@@ -179,3 +197,4 @@ def three_panel(filename:str,paramname:str,title:str):
     #note that params_list needs to be edited to omit the paramter being varied
     
     plt.show()
+
