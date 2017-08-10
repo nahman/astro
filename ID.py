@@ -1,4 +1,3 @@
-#A class that makes the identification of analyses easier. 
 import json
 
 def sci(num):
@@ -13,6 +12,7 @@ class Planet_ID:
                 m_iso_mode=None,
                 t_s=None,
                 atmos:'clean or dusty'=None,
+                init_a=None,
                 case=None,
                 tag=None,
                 _dict:'pass in a dictionary containing all relevant parameter values for instant init'=None
@@ -25,6 +25,7 @@ class Planet_ID:
             pebble_size= _dict['pebble_size']
             t_s= _dict['t_s']
             atmos=_dict['atmos']
+            init_a=_dict['init_a']
             case=_dict['case']
             tag=_dict['tag']
 
@@ -34,6 +35,7 @@ class Planet_ID:
         self.pebble_size=sci(float(pebble_size))
         self.t_s=t_s
         self.atmos = atmos
+        self.init_a = init_a
         self.case=case
         
         #rename this tag later for easier graphing
@@ -47,6 +49,7 @@ class Planet_ID:
         '\nt_s: '+str(self.t_s) +
         '\nm_iso_mode: '+str(self.m_iso_mode) +
         '\natmos: '+str(self.atmos) +
+        '\ninit_a: '+str(self.init_a) +
         '\ncase: '+str(self.case))
            
         return ret
@@ -59,6 +62,7 @@ class Planet_ID:
         ' t_s '+str(self.t_s)+
         ' m_iso_mode '+str(self.m_iso_mode)+
         ' atmos '+str(self.atmos)+
+        ' init_a '+str(self.init_a)+
         ' case '+str(self.case))
         
     def __str__(self):
@@ -68,6 +72,7 @@ class Planet_ID:
         params['m_iso_mode']=self.m_iso_mode
         params['t_s']=self.t_s
         params['atmos']=self.atmos
+        params['init_a']=self.init_a
         params['case']=self.case
         params['tag']=self.tag
         return json.dumps(params)
@@ -80,13 +85,14 @@ class Planet_ID:
         self.m_iso_mode=d['m_iso_mode']
         self.t_s=d['t_s']
         self.atmos=d['atmos']
+        self.init_a=d['init_a']
         self.case=d['case']
         self.tag=d['tag']
 
     def __hash__(self):
-        return hash((self.alpha,self.m_iso_mode,self.pebble_size,self.t_s,self.atmos,self.case,self.tag))
+        return hash((self.alpha,self.m_iso_mode,self.pebble_size,self.t_s,self.atmos,self.init_a,self.case,self.tag))
 
     def __eq__(self,other):
-        return (self.alpha,self.m_iso_mode,self.pebble_size,self.t_s,self.atmos,self.case,self.tag) \
-        == (other.alpha,other.m_iso_mode,other.pebble_size,other.t_s,other.atmos,other.case,other.tag)
+        return (self.alpha,self.m_iso_mode,self.pebble_size,self.t_s,self.atmos,self.init_a,self.case,self.tag) \
+        == (other.alpha,other.m_iso_mode,other.pebble_size,other.t_s,other.atmos,other.init_a,other.case,other.tag)
 
